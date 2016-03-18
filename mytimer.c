@@ -1,3 +1,12 @@
+//##############################
+// EC535 - Lab 3 KERNEL MODULE
+// Timers: mytimer.c
+// kierke@bu.edu
+//##############################
+
+//-------------------------------------------
+// Utilizing PKMurphy Lab 2 Solution
+//-------------------------------------------
 
 /* Necessary includes for device drivers */
 #include <linux/init.h>
@@ -11,16 +20,33 @@
 #include <linux/fcntl.h> /* O_ACCMODE */
 #include <asm/system.h> /* cli(), *_flags */
 #include <asm/uaccess.h> /* copy_from/to_user */
+#include <linux/jiffies.h> /* jiffies */
 
 #include <linux/timer.h>
 #include <linux/string.h>
 #include <linux/ctype.h>
+#include <linux/vmalloc.h>
 //#include <linux/time.h>
 //#include <stdarg/h>
 
+//MOROWING FROM FORTUNE COOKIE STUFF
+#define MAX_COOKIE_LENGTH       PAGE_SIZE
+static struct proc_dir_entry *proc_entry;
+
+static char *cookie_pot;  // Space for fortune strings
+static int cookie_index;  // Index to write next fortune
+static int next_fortune;  // Index to read next fortune
+/* fortune functions */
+static ssize_t fortune_write( struct file *filp, const char __user *buff,
+                        unsigned long len, void *data);
+static int fortune_read( char *page, char **start, off_t off,
+                   int count, int *eof, void *data);
+
+//-------------------------------------------------------
 MODULE_LICENSE("Dual BSD/GPL");
 
-// Declaration of memory.c functions 
+// Declaration of memory.c functions
+static int mytimer_fasync(int fd, struct file *filp, int mode); 
 static int mytimer_open(struct inode *inode, struct file *filp);
 static int mytimer_release(struct inode *inode, struct file *filp);
 static ssize_t mytimer_read(struct file *filp,
@@ -36,7 +62,8 @@ struct file_operations mytimer_fops = {
 	read: mytimer_read,
 	write: mytimer_write,
 	open: mytimer_open,
-	release: mytimer_release
+	release: mytimer_release,
+	fasync: mytimer_fasync
 };
 
 
@@ -67,6 +94,8 @@ static unsigned capacity = 128;
 static unsigned bite = 128;
 module_param(capacity, uint, S_IRUGO);
 module_param(bite, uint, S_IRUGO);
+struct fasync_struct *async_queue; /* async reads */
+static struct timer_list * fasync_timer[10];
 
 // Global variables of the driver 
 // Major number 
@@ -102,6 +131,18 @@ static int mytimer_init(void)
 		return result;
 	}
 
+	//Allocating Fasync timer buffer
+	for ( i = 0 ; fasync_timer[i] != NULL ; i ++ ) {}
+	fasync_timer[i] = (struct timer_list *) kmalloc(sizeof(struct timer_list), GFP_KERNEL);
+
+	/* Check if all right */
+	if (!fasync_timer[i])
+	{ 
+		printk(KERN_ALERT "Insufficient kernel memory\n"); 
+		result = -ENOMEM;
+		goto fail;
+	}
+
 	// Allocating mytimer for the buffer 
 	mytimer_buffer = kmalloc(capacity, GFP_KERNEL); 
 	if (!mytimer_buffer)
@@ -116,13 +157,51 @@ static int mytimer_init(void)
 
 	printk(KERN_ALERT "Inserting mytimer module\n");
  
-	return 0;
+	//--------------------------------------------------
+	    // Cookie shennanigans 
+    int ret = 0;
+
+    cookie_pot = (char *)vmalloc( MAX_COOKIE_LENGTH );
+
+    if (!cookie_pot) {
+        ret = -ENOMEM;
+    } else {
+
+        memset( cookie_pot, 0, MAX_COOKIE_LENGTH );
+
+        proc_entry = create_proc_entry( "mytimer", 0644, NULL );
+
+        if (proc_entry == NULL) {
+
+            ret = -ENOMEM;
+            vfree(cookie_pot);
+            printk(KERN_INFO "proc: Couldn't create proc entry\n");
+
+        } else {
+
+            cookie_index = 0;
+            next_fortune = 0;
+            proc_entry->read_proc = fortune_read;
+            proc_entry->write_proc = fortune_write;
+            proc_entry->owner = THIS_MODULE;
+            printk(KERN_INFO "proc: Module loaded.\n");
+
+        }
+
+    }
+
+    return ret;
+    //------------------------------------------------------
+
+	//return 0;
 
 fail: 
 	mytimer_exit(); 
 	return result;
 }
 
+
+//POSSIBLE ISSUES HERE:
 static void mytimer_exit(void)
 {	
 	int ret;
@@ -148,6 +227,62 @@ static void mytimer_exit(void)
 
 }
 
+
+
+//--------------------------------BORROWED FROM FORTUNE.C HERE DOWN
+
+static ssize_t fortune_write( struct file *filp, const char __user *buff,
+                        unsigned long len, void *data )
+{
+    int space_available = (MAX_COOKIE_LENGTH-cookie_index)+1;
+
+    if (len > space_available) {
+
+        printk(KERN_INFO "fortune: cookie pot is full!\n");
+        return -ENOSPC;
+
+    }
+
+    if (copy_from_user( &cookie_pot[cookie_index], buff, len )) {
+        return -EFAULT;
+    }
+
+    cookie_index += len;
+    cookie_pot[cookie_index-1] = 0;
+
+    return len;
+
+}
+
+//Where the /proc/ reading happens
+static int fortune_read( char *page, char **start, off_t off,
+                   int count, int *eof, void *data )
+{
+    int len;
+
+    if (off > 0) {
+        *eof = 1;
+        return 0;
+    }
+
+    /* Wrap-around */
+    if (next_fortune >= cookie_index) next_fortune = 0;
+
+    len = sprintf(page, "%s\n", &cookie_pot[next_fortune]);
+
+    next_fortune += len;
+
+    int i ;
+    for ( i = 0 ; i != 10 ; i ++ ) {
+        if ( command[i] != NULL ) 
+            printk(KERN_INFO "pid %d command is %s and the name of the timer is %s.\n" , process_id[i] , command[i] , timerName[i] ) ;
+    }
+    return len;
+}
+//--------------------------------BORROWED FROM FORTUNE.C HERE UP
+
+
+
 static int mytimer_open(struct inode *inode, struct file *filp)
 {
 	//printk(KERN_INFO "open called: process id %d, command %s\n",
@@ -161,6 +296,7 @@ static int mytimer_release(struct inode *inode, struct file *filp)
 	//printk(KERN_INFO "release called: process id %d, command %s\n",
 	//	current->pid, current->comm);
 	// Success 
+	mytimer_fasync(-1, filp, 0); //added
 	return 0;
 }
 
@@ -401,4 +537,23 @@ static ssize_t mytimer_write(struct file *filp, const char *buf,
 		numTimers = simple_strtoul(updateStr, &endptr, 10);
 	}
 	return count;
+}
+
+//ADDED STUFF -------------------------------------------------
+
+
+static int mytimer_fasync(int fd, struct file *filp, int mode) {
+	return fasync_helper(fd, filp, mode, &async_queue);
+}
+
+static void timer_handler(unsigned long data) {
+    kfree(timerName[data]);
+    timerName[data]   = NULL ;
+    //kfree ( fasync_timer ) ;
+    printk ( KERN_INFO "Close Out!\n" ) ;
+	if (async_queue)
+		kill_fasync(&async_queue, SIGIO, POLL_IN);
+	del_timer(fasync_timer[data]);
+    kfree(command[data]);
+    command[data]   =NULL ;
 }

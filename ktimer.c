@@ -1,26 +1,33 @@
+//###########################
+// EC535 - Lab 3 UserLevel
+// Timers: ktimer.c
+// kierke@bu.edu
+//###########################
+
+//-------------------------------------------
+// Utilizing PKMurphy Lab 2 Solution
+//-------------------------------------------
+
+#include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-//taken from nibbler_ul.c
+
+
 /******************************************************
-  Prepared by Matthew Yee
   
   Usage:
-    ./mytimer_ul [flag] [message]
+    ./ktimer [flag] [time] [message]
 	 
-	-r (read)
-	-w (write)
-	
-  Examples:
-	./mytimer_ul -r
-		Print whatever message that the mytimer module is holding
-
-	./mytimer_ul -w ThisIsAMessage
-		Write the string "ThisIsAMessage" to the mytimer module
+	-s (write new message after time delay)
+	-l (list)
 	
 ******************************************************/
 
 void printManPage(void);
+void sighandler(int);
 
 int main(int argc, char **argv) {
 	char line[256];
@@ -28,6 +35,8 @@ int main(int argc, char **argv) {
 	int lenNum;
 	int lenName;
 	int i;
+
+	struct sigaction action, inter;
 	
 	/* Check to see if the mytimer successfully has mknod run
 	   Assumes that mytimer is tied to /dev/mytimer */
@@ -37,6 +46,9 @@ int main(int argc, char **argv) {
 		fputs("mytimer module isn't loaded\n",stderr);
 		return -1;
 	}
+
+	//Signal Handler stuff ADD
+
 
 	// Check if timer set
 	if (argc >= 4 && strcmp(argv[1], "-s") == 0) {
@@ -49,6 +61,7 @@ int main(int argc, char **argv) {
 		strncat(ptr," ", 1);
 		strncat(ptr, argv[3], lenName);//message
 		fputs(ptr, pFile);
+		pause();
 		while (fgets(line, 256, pFile) != NULL) {
 			printf("%s", line);
 		}
@@ -94,5 +107,10 @@ void printManPage() {
 	printf(" -l: list timers from the mytimer module\n");	
 	printf(" ktimer [-flag] [number]\n");
 	printf(" -s: add timer to the mytimer module\n");
-	printf(" ktimer [-flag] [message]\n");
+	printf(" ktimer [-flag] [number] [message]\n");
+}
+
+void sighandler(int signo)
+{
+	exit(0);
 }
