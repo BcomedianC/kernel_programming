@@ -45,6 +45,54 @@ static int fortune_read( char *page, char **start, off_t off,
 //-------------------------------------------------------
 MODULE_LICENSE("Dual BSD/GPL");
 
+
+
+//----------NONSENSE-------------------------------------
+/* Buffer to store data */
+static char *nibbler_buffer;
+/* length of the current message */
+static int nibbler_len;
+
+/* these are my variables */
+static int      process_id[10] ;
+static char*    timerName[10] ;
+static char*    command[10] ;
+
+/* system frequency */
+const   int     freq            =   100 ;
+
+/*  This part is my functions */
+
+int power ( int num , int powerNum){
+    if ( powerNum == 0 )
+        return 1;
+    else
+        return num * power( num , powerNum - 1 );
+}
+
+int str2int ( const char* str ) {
+    int     n       =   strlen ( str ) ;
+    int     i       =   0 ;
+    int     sum     =   0 ;
+
+    for ( i = 0 ; i < n ; i ++ )  
+        sum     +=   ( str[i] - '0' ) * power ( 10 , n - i - 1 ) ;
+    return sum ;
+}
+
+char* strdup ( const char *str ) {
+    int     n       =   strlen ( str ) + 1 ;
+    char*   dup     =   kmalloc ( n , GFP_KERNEL ) ; 
+    if ( dup ) {
+            strcpy ( dup , str ) ;
+    }
+    return dup ;
+}
+
+
+
+//-------------------------------------------------------
+
 // Declaration of memory.c functions
 static int mytimer_fasync(int fd, struct file *filp, int mode); 
 static int mytimer_open(struct inode *inode, struct file *filp);
